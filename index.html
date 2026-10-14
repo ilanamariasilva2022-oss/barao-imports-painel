@@ -1,0 +1,253 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Barão Imports | Administração</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{--gold:#c69a3b;--dark:#171512;--bg:#f6f3ed}
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:var(--bg);color:#211e19}
+header{background:var(--dark);color:white;padding:24px 18px;border-bottom:4px solid var(--gold)}
+header h1{margin:0;color:#e0b957;font-size:25px}
+header p{margin:8px 0 0;color:#eee}
+main{max-width:1100px;margin:auto;padding:18px}
+.card{background:white;padding:18px;border:1px solid #e5dfd4;border-radius:14px;margin-bottom:18px}
+h2{font-size:20px;margin-top:0}
+input,select,textarea,button{font:inherit;width:100%;padding:12px;margin:6px 0;border-radius:8px;border:1px solid #d5d0c7}
+button{background:var(--gold);border:0;font-weight:bold;cursor:pointer;color:#171512}
+button.secondary{background:#eee8dd}
+button.danger{background:#fbe2df;color:#9d241b}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:18px}
+.stat{background:white;border:1px solid #e5dfd4;border-radius:12px;padding:14px}
+.stat strong{display:block;font-size:24px;margin-top:8px}
+.product{border-top:1px solid #eee;padding:14px 0;overflow-wrap:anywhere}
+.product img{width:64px;height:64px;object-fit:contain;float:right}
+.muted{color:#706b63;font-size:14px}
+.hidden{display:none!important}
+@media(max-width:600px){.grid,.stats{grid-template-columns:1fr 1fr}main{padding:10px}.card{padding:13px}}
+</style>
+</head>
+<body>
+<header>
+<h1>♛ BARÃO IMPORTS</h1>
+<p>Painel administrativo • Produtos e estoque</p>
+</header>
+<main>
+<section class="card" id="login">
+<h2>Acesso administrativo</h2>
+<p class="muted">Entre com o e-mail e a senha cadastrados no Supabase.</p>
+<input id="email" type="email" placeholder="E-mail" autocomplete="username">
+<input id="password" type="password" placeholder="Senha" autocomplete="current-password">
+<button id="loginBtn">Entrar no painel</button>
+<p id="loginMsg" role="status"></p>
+</section>
+
+<div id="app" class="hidden">
+<div class="stats">
+<div class="stat">Produtos<strong id="count">0</strong></div>
+<div class="stat">Em estoque<strong id="stock">0</strong></div>
+<div class="stat">Categorias<strong id="categories">0</strong></div>
+</div>
+
+<section class="card">
+<h2 id="formTitle">＋ Adicionar produto</h2>
+<form id="productForm">
+<input id="productId" type="hidden">
+<label>Nome do produto *</label>
+<input id="name" required placeholder="Ex.: Perfume árabe">
+<div class="grid">
+<div><label>Categoria *</label>
+<select id="category" required>
+<option value="Perfumes">Perfumes</option>
+<option value="Smartwatches">Smartwatches</option>
+<option value="Celulares">Celulares</option>
+<option value="Fones">Fones</option>
+<option value="Acessórios">Acessórios</option>
+<option value="Outros">Outros</option>
+</select></div>
+<div><label>Preço (R$) *</label>
+<input id="price" type="number" min="0" step="0.01" required placeholder="149.90"></div>
+<div><label>Preço promocional (R$)</label>
+<input id="promo" type="number" min="0" step="0.01" placeholder="Opcional"></div>
+<div><label>Desconto (%)</label>
+<input id="discount" type="number" min="0" max="100" step="1" placeholder="Opcional"></div>
+<div><label>Estoque *</label>
+<input id="stockInput" type="number" min="0" step="1" required value="1"></div>
+</div>
+<label>Link da foto</label>
+<input id="image" type="url" placeholder="https://...">
+<label>Descrição</label>
+<textarea id="description" rows="3" placeholder="Descrição do produto"></textarea>
+<label><input id="active" type="checkbox" checked style="width:auto"> Produto disponível na loja</label>
+<button type="submit" id="saveBtn">Salvar produto</button>
+<button type="button" class="secondary" id="clearBtn">Limpar formulário</button>
+</form>
+<p id="formMsg" role="status"></p>
+</section>
+
+<section class="card">
+<h2>Produtos cadastrados</h2>
+<input id="search" placeholder="Buscar produto..." type="search">
+<div id="products">Carregue os produtos para começar.</div>
+<button class="secondary" id="refreshBtn">Atualizar produtos</button>
+</section>
+<section class="card">
+<h2>Sessão</h2>
+<p class="muted">Para sair do painel administrativo.</p>
+<button class="secondary" id="logoutBtn">Sair da conta</button>
+</section>
+</div>
+</main>
+<script>
+const SUPABASE_URL = "https://ygjaohdfhskfknkqrtiw.supabase.co";
+const SUPABASE_KEY = "sb_publishable_LPrJVncsc-HntevuReL-Tg_p_Jjh9yF";
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const $ = id => document.getElementById(id);
+let items = [];
+
+function message(id, text) { $(id).textContent = text; }
+function money(n) {
+  return Number(n || 0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
+}
+function escapeHTML(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+  })[c]);
+}
+async function checkSession() {
+  const {data} = await db.auth.getSession();
+  const signedIn = !!data.session;
+  $("login").classList.toggle("hidden", signedIn);
+  $("app").classList.toggle("hidden", !signedIn);
+  if(signedIn) await loadProducts();
+}
+$("loginBtn").onclick = async () => {
+  message("loginMsg","Verificando acesso...");
+  const {error} = await db.auth.signInWithPassword({
+    email:$("email").value.trim(),
+    password:$("password").value
+  });
+  if(error) { message("loginMsg","Não foi possível entrar. Confira os dados e o usuário no Supabase."); return; }
+  message("loginMsg","");
+  await checkSession();
+};
+$("logoutBtn").onclick = async () => {
+  await db.auth.signOut();
+  items = [];
+  await checkSession();
+};
+function clearForm() {
+  $("productForm").reset();
+  $("productId").value = "";
+  $("stockInput").value = 1;
+  $("active").checked = true;
+  $("formTitle").textContent = "＋ Adicionar produto";
+  $("saveBtn").textContent = "Salvar produto";
+  message("formMsg","");
+}
+$("clearBtn").onclick = clearForm;
+
+$("productForm").onsubmit = async event => {
+  event.preventDefault();
+  const id = $("productId").value;
+  const product = {
+    name:$("name").value.trim(),
+    category:$("category").value,
+    price:Number($("price").value),
+    preco_promocional:$("promo").value === "" ? null : Number($("promo").value),
+    desconto_percentual:$("discount").value === "" ? null : Number($("discount").value),
+    stock:Number($("stockInput").value),
+    image_url:$("image").value.trim() || null,
+    description:$("description").value.trim(),
+    is_active:$("active").checked
+  };
+  $("saveBtn").disabled = true;
+  message("formMsg","Salvando...");
+  let result;
+  if(id) result = await db.from("products").update(product).eq("id",id);
+  else result = await db.from("products").insert(product);
+  $("saveBtn").disabled = false;
+  if(result.error) {
+    message("formMsg","Erro ao salvar: "+result.error.message);
+    return;
+  }
+  message("formMsg","Produto salvo com sucesso!");
+  clearForm();
+  await loadProducts();
+};
+
+function editProduct(id) {
+  const p = items.find(x => String(x.id) === String(id));
+  if(!p) return;
+  $("productId").value = p.id;
+  $("name").value = p.name || "";
+  $("category").value = p.category || "Outros";
+  $("price").value = p.price ?? "";
+  $("promo").value = p.preco_promocional ?? "";
+  $("discount").value = p.desconto_percentual ?? "";
+  $("stockInput").value = p.stock ?? 0;
+  $("image").value = p.image_url || "";
+  $("description").value = p.description || "";
+  $("active").checked = p.is_active !== false;
+  $("formTitle").textContent = "Editar produto";
+  $("saveBtn").textContent = "Salvar alterações";
+  $("productForm").scrollIntoView({behavior:"smooth"});
+}
+async function deleteProduct(id) {
+  if(!confirm("Deseja realmente excluir este produto?")) return;
+  const {error} = await db.from("products").delete().eq("id",id);
+  if(error) { alert("Erro ao excluir: "+error.message); return; }
+  await loadProducts();
+}
+function renderProducts() {
+  const term = $("search").value.toLowerCase().trim();
+  const filtered = items.filter(p =>
+    String(p.name || "").toLowerCase().includes(term) ||
+    String(p.category || "").toLowerCase().includes(term)
+  );
+  $("count").textContent = items.length;
+  $("stock").textContent = items.reduce((sum,p)=>sum+Number(p.stock||0),0);
+  $("categories").textContent = new Set(items.map(p=>p.category).filter(Boolean)).size;
+  if(!filtered.length) {
+    $("products").textContent = items.length ? "Nenhum produto encontrado." : "Nenhum produto cadastrado.";
+    return;
+  }
+  $("products").innerHTML = filtered.map(p => `
+    <article class="product">
+      ${p.image_url ? `<img src="${escapeHTML(p.image_url)}" alt="" loading="lazy">` : ""}
+      <strong>${escapeHTML(p.name)}</strong>
+      <p>${escapeHTML(p.category || "Sem categoria")} · ${p.is_active === false ? "Indisponível" : "Disponível"}</p>
+      <strong>${money(p.preco_promocional || p.price)}</strong>
+      ${p.preco_promocional ? `<span class="muted">Preço normal: ${money(p.price)}</span>` : ""}
+      <p class="muted">Estoque: ${Number(p.stock||0)} · ${escapeHTML(p.description || "")}</p>
+      <button data-edit="${escapeHTML(p.id)}">Editar</button>
+      <button class="danger" data-delete="${escapeHTML(p.id)}">Excluir</button>
+    </article>`).join("");
+  $("products").querySelectorAll("[data-edit]").forEach(b =>
+    b.onclick = () => editProduct(b.dataset.edit));
+  $("products").querySelectorAll("[data-delete]").forEach(b =>
+    b.onclick = () => deleteProduct(b.dataset.delete));
+}
+async function loadProducts() {
+  $("products").textContent = "Carregando produtos...";
+  const {data,error} = await db.from("products").select("*").order("created_at",{ascending:false});
+  if(error) {
+    $("products").textContent = "Não foi possível carregar os produtos: "+error.message;
+    return;
+  }
+  items = data || [];
+  renderProducts();
+}
+$("refreshBtn").onclick = loadProducts;
+$("search").oninput = renderProducts;
+db.auth.onAuthStateChange(() => {
+  setTimeout(() => checkSession(),0);
+});
+checkSession();
+</script>
+</body>
+</html>
