@@ -78,8 +78,12 @@ button.danger{background:#fbe2df;color:#9d241b}
 <div><label>Estoque *</label>
 <input id="stockInput" type="number" min="0" step="1" required value="1"></div>
 </div>
-<label>Link da foto</label>
+<label>Link da foto (opcional)</label>
 <input id="image" type="url" placeholder="https://...">
+<label for="imageFile">Escolher foto da galeria</label>
+<input id="imageFile" type="file" accept="image/*">
+<button type="button" id="uploadImageBtn">Enviar foto</button>
+<p id="imageMsg"></p>
 <label>Descrição</label>
 <textarea id="description" rows="3" placeholder="Descrição do produto"></textarea>
 <label><input id="active" type="checkbox" checked style="width:auto"> Produto disponível na loja</label>
@@ -150,6 +154,46 @@ function clearForm() {
   message("formMsg","");
 }
 $("clearBtn").onclick = clearForm;
+
+
+$("uploadImageBtn").onclick = async () => {
+  const file = $("imageFile").files[0];
+
+  if (!file) {
+    $("imageMsg").textContent = "Escolha uma foto da galeria primeiro.";
+    return;
+  }
+
+  $("uploadImageBtn").disabled = true;
+  $("imageMsg").textContent = "Enviando foto...";
+
+  try {
+    const nome = Date.now() + "-" +
+      file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+
+    const { error } = await db.storage
+      .from("Produtos")
+      .upload(nome, file, {
+        contentType: file.type,
+        upsert: false
+      });
+
+    if (error) throw error;
+
+    const { data } = db.storage
+      .from("Produtos")
+      .getPublicUrl(nome);
+
+    $("image").value = data.publicUrl;
+    $("imageMsg").textContent =
+      "Foto enviada! Agora salve o produto.";
+  } catch (erro) {
+    $("imageMsg").textContent =
+      "Erro ao enviar: " + erro.message;
+  } finally {
+    $("uploadImageBtn").disabled = false;
+  }
+};
 
 $("productForm").onsubmit = async event => {
   event.preventDefault();
