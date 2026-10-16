@@ -99,6 +99,16 @@ button.danger{background:#fbe2df;color:#9d241b}
 <div id="products">Carregue os produtos para começar.</div>
 <button class="secondary" id="refreshBtn">Atualizar produtos</button>
 </section>
+  <section class="card" id="ordersCard">
+  <h2>Pedidos dos clientes</h2>
+  <input id="orderSearch" type="search"
+         placeholder="Buscar por nome ou telefone">
+  <div id="ordersList">Carregando pedidos...</div>
+  <button class="secondary" id="refreshOrdersBtn" type="button">
+    Atualizar pedidos
+  </button>
+  <p id="ordersMsg" role="status"></p>
+  </section>
 <section class="card">
 <h2>Sessão</h2>
 <p class="muted">Para sair do painel administrativo.</p>
@@ -292,6 +302,82 @@ db.auth.onAuthStateChange(() => {
   setTimeout(() => checkSession(),0);
 });
 checkSession();
+  async function loadOrders() {
+  const list = $("ordersList");
+  const msg = $("ordersMsg");
+
+  list.textContent = "Carregando pedidos...";
+
+  const { data, error } = await db
+    .from("orders")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    list.textContent = "Erro ao carregar pedidos.";
+    msg.textContent = error.message;
+    return;
+  }
+
+  if (!data || data.length === 0) {
+    list.textContent = "Nenhum pedido recebido.";
+    return;
+  }
+
+  const term = $("orderSearch").value.toLowerCase().trim();
+  const filtered = data.filter(o =>
+    String(o.customer_name || "").toLowerCase().includes(term) ||
+    String(o.customer_phone || "").includes(term)
+  );
+
+  list.innerHTML = filtered.map(o => `
+    <article class="product">
+      <strong>Pedido #${o.id} — ${escapeHTML(o.customer_name)}</strong>
+      <p>Telefone: ${escapeHTML(o.customer_phone || "Não informado")}</p>
+      <p>Total: ${money(o.total)}</p>
+      <p>Status: ${escapeHTML(o.order_status || "recebido")}</p>
+      <p>Pagamento: ${escapeHTML(o.payment_status || "pendente")}</p>
+      <label>Status do pedido</label>
+      <select data-status="${o.id}">
+        ${["recebido","preparando","enviado","entregue","cancelado"].map(s =>
+          `<option value="${s}" ${o.order_status === s ? "selected" : ""}>${s}</option>`
+        ).join("")}
+      </select>
+      <label>Status do pagamento</label>
+      <select data-payment="${o.id}">
+        ${["pendente","aguardando pagamento","pago","cancelado"].map(s =>
+          `<option value="${s}" ${o.payment_status === s ? "selected" : ""}>${s}</option>`
+        ).join("")}
+      </select>
+      <button type="button" data-save="${o.id}">Salvar status</button>
+    </article>
+  `).join("") || "Nenhum pedido encontrado.";
+
+  list.querySelectorAll("[data-save]").forEach(button => {
+    button.onclick = async () => {
+      const id = button.dataset.save;
+      const status = list.querySelector(`[data-status="${id}"]`).value;
+      const payment = list.querySelector(`[data-payment="${id}"]`).value;
+
+      const { error } = await db.from("orders").update({
+        order_status: status,
+        payment_status: payment
+      }).eq("id", id);
+
+      msg.textContent = error
+        ? "Erro ao salvar: " + error.message
+        : "Status atualizado!";
+      if (!error) loadOrders();
+    };
+  });
+}
+
+$("refreshOrdersBtn").onclick = loadOrders;
+$("orderSearch").oninput = loadOrders;
+
+db.auth.getSession().then(({ data }) => {
+  if (data.session) loadOrders();
+});
 </script>
 </body>
 </html>
